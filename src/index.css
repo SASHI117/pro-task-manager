@@ -1,0 +1,90 @@
+/* src/index.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* --- Glassmorphic global theme --- */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
+
+:root{
+  --glass-bg: rgba(255,255,255,0.06);
+  --glass-border: rgba(255,255,255,0.12);
+  --glass-strong: rgba(255,255,255,0.14);
+  --accent: rgba(139,92,246,0.95); /* purple accent */
+}
+
+/* page background gradient + base font */
+html, body, #root {
+  height: 100%;
+}
+body {
+  @apply m-0 min-h-screen;
+  font-family: 'Poppins', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  background: radial-gradient(1200px 600px at 10% 10%, rgba(99,102,241,0.08), transparent 8%),
+              radial-gradient(1000px 500px at 90% 90%, rgba(139,92,246,0.06), transparent 8%),
+              linear-gradient(180deg, #0b1220 0%, #0f1724 100%);
+  color: #e6eef8;
+}
+
+/* Glass card base */
+.glass {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+  backdrop-filter: blur(14px) saturate(120%);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  box-shadow: 0 6px 30px rgba(2,6,23,0.6);
+  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+
+/* stronger glass for highlighted panels */
+.glass-strong {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid var(--glass-strong);
+  box-shadow: 0 10px 40px rgba(2,6,23,0.7);
+}
+
+/* hover lift */
+.glass:hover {
+  transform: translateY(-4px);
+  border-color: rgba(255,255,255,0.22);
+  box-shadow: 0 12px 48px rgba(2,6,23,0.75);
+}
+
+/* Button glass */
+.btn-glass {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  padding: .5rem .75rem;
+  border-radius: 10px;
+  transition: transform .14s ease, background .14s ease;
+}
+.btn-glass:hover {
+  background: rgba(255,255,255,0.07);
+  transform: translateY(-2px);
+}
+
+/* small utility tweaks */
+.input-glass {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  padding: .5rem .75rem;
+  border-radius: 8px;
+  color: #e6eef8;
+}
+.label-muted { color: rgba(230,238,248,0.65); font-size: .85rem; }
+.small-muted { color: rgba(230,238,248,0.6); font-size: .9rem; }
+
+/* helper for dark form backgrounds inside the glass */
+.form-surface {
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  padding: .75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.02);
+}
+
+/* matrix theme (optional) — kept from original skeleton */
+.matrix {
+  --color-bg-primary: #0D0208;
+  --color-text-primary: #00FF41;
+}

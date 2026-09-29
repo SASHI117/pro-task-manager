@@ -18,6 +18,7 @@ import {
   Timestamp
 } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
+import { filterTasks, formatDateForInput, nextOccurrence, parseDateInput, sortTasks, toDate } from "../lib/tasks";
 
 /* --------------------------
   Inline SVG helper
@@ -40,17 +41,6 @@ const ICONS = {
 const priorityMap = { 1: "text-red-400", 2: "text-orange-400", 3: "text-cyan-300", 4: "text-gray-300" };
 const themes = { light: "", dark: "dark", matrix: "matrix" };
 
-/* Convert Firestore Timestamp to yyyy-mm-dd for input[type=date] */
-const formatDateForInput = (ts) => {
-  if (!ts) return "";
-  if (ts instanceof Timestamp) {
-    const d = ts.toDate();
-    const iso = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString();
-    return iso.split("T")[0];
-  }
-  const iso = new Date(ts.getTime() - ts.getTimezoneOffset() * 60000).toISOString();
-  return iso.split("T")[0];
-};
 
 /* -----------------------------
   Main Dashboard Component
@@ -67,8 +57,7 @@ export default function DashboardLayout() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState("priority");
   const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "dark");
-  // <-- ADDED: selectedPriority state to fix undefined variable error
-  const [selectedPriority, setSelectedPriority] = useState(3);
+  const [priorityFilter, setPriorityFilter] = useState(0); // 0 = all priorities
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [toast, setToast] = useState({ message: "", type: "success", visible: false });
@@ -78,7 +67,15 @@ export default function DashboardLayout() {
     setTimeout(() => setToast((t) => ({ ...t, visible: false })), 3000);
   }, []);
 
-  const path = (coll) => `users/${currentUser.uid}/${coll}`;
+  const path = useCallback((coll) => `users/${currentUser.uid}/${coll}`, [currentUser]);
+
+  // Without an error callback a denied or failing listener leaves the UI on
+  // "Loading Workspace..." forever with nothing in the console.
+  const onListenError = useCallback((what) => (err) => {
+    console.error(err);
+    setError(`Could not load ${what}: ${err.code || err.message}`);
+    setIsLoading(false);
+  }, []);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -87,12 +84,12 @@ export default function DashboardLayout() {
 
     const unsubProjects = onSnapshot(query(projectsRef, orderBy("createdAt", "asc")), (snap) => {
       setProjects(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
+    }, onListenError("projects"));
 
     const unsubTasks = onSnapshot(query(tasksRef), (snap) => {
       setTasks(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
       setIsLoading(false);
-    });
+    }, onListenError("tasks"));
 
     return () => {
       unsubProjects();
@@ -108,7 +105,8 @@ export default function DashboardLayout() {
     }
     const commentsRef = collection(db, path("comments"));
     const q = query(commentsRef, where("taskId", "==", selectedTask.id), orderBy("createdAt", "desc"));
-    const unsub = onSnapshot(q, (snap) => setComments(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+    // Needs the composite index in firestore.indexes.json (taskId + createdAt).
+    const unsub = onSnapshot(q, (snap) => setComments(snap.docs.map((d) => ({ id: d.id, ...d.data() }))), onListenError("comments"));
     return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTask, currentUser]);
@@ -172,20 +170,15 @@ export default function DashboardLayout() {
         setError(`Failed to ${action} ${collectionName}`);
       }
     },
-    [currentUser, showToast]
+    [currentUser, showToast, path]
   );
 
   const handleCompleteTask = useCallback(
     (task) => {
       if (!task) return;
       if (task.recurrence && task.recurrence !== "none" && task.dueDate && !task.completed) {
-        const d = task.dueDate instanceof Timestamp ? task.dueDate.toDate() : new Date(task.dueDate);
-        const newDate = new Date(d);
-        if (task.recurrence === "daily") newDate.setDate(newDate.getDate() + 1);
-        else if (task.recurrence === "weekly") newDate.setDate(newDate.getDate() + 7);
-        else if (task.recurrence === "monthly") newDate.setMonth(newDate.getMonth() + 1);
-
-        crudHandler("update", "tasks", { id: task.id, payload: { dueDate: Timestamp.fromDate(newDate), completed: false, completedAt: serverTimestamp() } });
+        const newDate = nextOccurrence(toDate(task.dueDate), task.recurrence);
+        crudHandler("update", "tasks", { id: task.id, payload: { dueDate: Timestamp.fromDate(newDate), completed: false, lastCompletedAt: serverTimestamp() } });
         showToast(`Task "${task.text}" rescheduled.`);
       } else {
         crudHandler("update", "tasks", { id: task.id, payload: { completed: !task.completed, completedAt: !task.completed ? serverTimestamp() : null } });
@@ -195,53 +188,11 @@ export default function DashboardLayout() {
   );
 
   const filteredAndSortedTasks = useMemo(() => {
-    let tasksToShow = tasks.slice();
-
-    if (!["calendar", "dashboard"].includes(currentView.type)) {
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const tomorrowStart = new Date(todayStart);
-      tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-
-      switch (currentView.type) {
-        case "inbox":
-          tasksToShow = tasksToShow.filter((t) => !t.projectId || t.projectId === "inbox");
-          break;
-        case "today":
-          tasksToShow = tasksToShow.filter((t) => t.dueDate && (t.dueDate instanceof Timestamp ? t.dueDate.toDate() : new Date(t.dueDate)) >= todayStart && (t.dueDate instanceof Timestamp ? t.dueDate.toDate() : new Date(t.dueDate)) < tomorrowStart);
-          break;
-        case "upcoming":
-          tasksToShow = tasksToShow.filter((t) => t.dueDate && (t.dueDate instanceof Timestamp ? t.dueDate.toDate() : new Date(t.dueDate)) >= tomorrowStart);
-          break;
-        case "project":
-          tasksToShow = tasksToShow.filter((t) => t.projectId === currentView.id);
-          break;
-        case "tag":
-          tasksToShow = tasksToShow.filter((t) => (t.tags || []).includes(currentView.name));
-          break;
-        default:
-          break;
-      }
-    }
-
-    if (searchQuery) {
-      tasksToShow = tasksToShow.filter((t) => (t.text || "").toLowerCase().includes(searchQuery.toLowerCase()));
-    }
-
-    tasksToShow.sort((a, b) => {
-      if ((a.completed || false) !== (b.completed || false)) return a.completed ? 1 : -1;
-      switch (sortBy) {
-        case "dueDate":
-          return (a.dueDate?.toMillis?.() || Infinity) - (b.dueDate?.toMillis?.() || Infinity);
-        case "createdAt":
-          return (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0);
-        default:
-          return (a.priority || 4) - (b.priority || 4);
-      }
-    });
-
-    return tasksToShow;
-  }, [tasks, currentView, searchQuery, sortBy]);
+    const visible = ["calendar", "dashboard"].includes(currentView.type)
+      ? tasks
+      : filterTasks(tasks, { view: currentView, search: searchQuery, priority: priorityFilter });
+    return sortTasks(visible, sortBy);
+  }, [tasks, currentView, searchQuery, priorityFilter, sortBy]);
 
   const rootTasks = useMemo(() => filteredAndSortedTasks.filter((t) => !t.parentId), [filteredAndSortedTasks]);
   const getSubtasks = useCallback((taskId) => filteredAndSortedTasks.filter((t) => t.parentId === taskId), [filteredAndSortedTasks]);
@@ -367,10 +318,11 @@ export default function DashboardLayout() {
                 <Icon path={ICONS.search} />
               </div>
 
-              {/* Priority Dropdown */}
+              {/* Priority filter */}
               <select
-                value={selectedPriority}
-                onChange={(e) => setSelectedPriority(Number(e.target.value))}
+                aria-label="Filter by priority"
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(Number(e.target.value))}
                 style={{
                   backgroundColor: theme === "dark" ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)",
                   color: theme === "dark" ? "#fff" : "#000",
@@ -384,10 +336,23 @@ export default function DashboardLayout() {
                   backdropFilter: "blur(8px)",
                 }}
               >
+                <option value={0}>All priorities</option>
                 <option value={1}>Priority 1</option>
                 <option value={2}>Priority 2</option>
                 <option value={3}>Priority 3</option>
                 <option value={4}>Priority 4</option>
+              </select>
+
+              {/* Sort */}
+              <select
+                aria-label="Sort tasks"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="input-glass text-sm"
+              >
+                <option value="priority">Sort: priority</option>
+                <option value="dueDate">Sort: due date</option>
+                <option value="createdAt">Sort: newest</option>
               </select>
 
               {/* Theme Dropdown */}
@@ -423,7 +388,8 @@ export default function DashboardLayout() {
               const projectId = e.target.projectSelect.value === "inbox" ? null : e.target.projectSelect.value;
               const priority = Number(e.target.prioritySelect.value) || 4;
               const tags = e.target.tagsInput.value ? e.target.tagsInput.value.split(",").map(s => s.trim()).filter(Boolean) : [];
-              const due = e.target.dueInput.value ? Timestamp.fromDate(new Date(e.target.dueInput.value)) : null;
+              const dueDate = parseDateInput(e.target.dueInput.value);
+              const due = dueDate ? Timestamp.fromDate(dueDate) : null;
               await crudHandler("add", "tasks", { text, projectId, priority, tags, createdAt: serverTimestamp(), dueDate: due });
               e.target.reset();
             }} className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
@@ -536,7 +502,7 @@ function TaskDetailPane({ task, comments = [], onUpdateTask, onDeleteTask, onAdd
 
   async function handleSave() {
     const payload = { text: editText, priority: Number(priority), recurrence: recurrence || "none" };
-    if (due) payload.dueDate = Timestamp.fromDate(new Date(due));
+    if (due) payload.dueDate = Timestamp.fromDate(parseDateInput(due));
     else payload.dueDate = null;
     await onUpdateTask(task.id, payload);
     showToast("Task updated");

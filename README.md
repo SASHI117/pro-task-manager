@@ -1,116 +1,92 @@
-# Pro Task Manager 🧠  
+# Pro Task Manager
 
-This project is a **Task Manager Dashboard** built with **React + Firebase + Tailwind CSS**, designed to help users organize their tasks efficiently.  
-It features secure authentication (Signup, Login, Forgot Password) and a dynamic dashboard layout.  
+[![CI](https://github.com/SASHI117/pro-task-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/SASHI117/pro-task-manager/actions/workflows/ci.yml)
+![React](https://img.shields.io/badge/React-19-61DAFB)
+![Firebase](https://img.shields.io/badge/Firebase-Auth%20%2B%20Firestore-FFCA28)
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).  
+A personal task manager built with React, Firebase Authentication and
+Cloud Firestore, styled with Tailwind. Each user's data lives in their own
+Firestore subtree, and security rules lock it to that user. The UI updates
+in real time through Firestore listeners.
 
----
+## Features
 
-## 📦 Available Scripts  
+- Email/password sign-up, login and password reset (Firebase Auth), with auth-guarded routes
+- **Inbox, Today, Upcoming, per-project and per-tag views**, plus search, a priority filter and sorting (priority, due date, newest)
+- Tasks with priority 1–4, due date, tags and **recurrence** (daily, weekly or monthly; completing a recurring task schedules the next one)
+- Projects, and a comment thread per task
+- Deleting a task also deletes its subtasks and comments, in one batched write
+- Dark, light and "matrix" themes, saved per browser
 
-In the project directory, you can run:  
+## Architecture
 
-### `npm start`  
-Runs the app in the development mode.  
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.  
+```mermaid
+flowchart LR
+    UI[React components] -->|onSnapshot listeners| FS[(Firestore)]
+    UI -->|add / update / batch delete| FS
+    UI --> AUTH[Firebase Auth]
+    AUTH -. uid .-> RULES{{firestore.rules}}
+    RULES -. guards .-> FS
+    UI --> LIB["src/lib/tasks.js<br/>filter · sort · dates · recurrence"]
+```
 
-The page will reload when you make changes.  
-You may also see any lint errors in the console.  
+```
+users/{uid}/projects/{projectId}   name, createdAt
+users/{uid}/tasks/{taskId}         text, priority, dueDate, tags[], recurrence, projectId, parentId, completed
+users/{uid}/comments/{commentId}   taskId, text, user, createdAt
+```
 
----
+Putting everything under `users/{uid}` keeps the security rule to one line
+and means no query can reach another user's data. The trade-off is that
+sharing a project between users would need a different layout.
 
-### `npm run build`  
-Builds the app for production to the `build` folder.  
-It correctly bundles React in production mode and optimizes the build for the best performance.  
+## Setup
 
-The build is minified and the filenames include the hashes.  
-Your app is ready to be deployed!  
+1. Create a Firebase project. Enable **Email/Password** sign-in and **Cloud Firestore**.
+2. Copy the web app config into `.env`:
+   ```bash
+   cp .env.example .env    # REACT_APP_* values from Project settings → Your apps
+   ```
+3. Deploy the security rules and the composite index that the comments query needs:
+   ```bash
+   npm i -g firebase-tools && firebase login
+   firebase use <project-id>
+   firebase deploy --only firestore:rules,firestore:indexes
+   ```
+4. Run it:
+   ```bash
+   npm ci
+   npm start               # http://localhost:3000
+   ```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.  
+`firebase.json` also configures SPA hosting: `npm run build && firebase deploy --only hosting`.
 
----
+## Tests
 
-### `npm test`  
-Launches the test runner in the interactive watch mode.  
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.  
+```bash
+npm run test:ci    # 19 tests
+```
 
----
+`src/lib/tasks.test.js` covers the logic that is easy to get wrong: local
+vs UTC date parsing, month-end recurrence, each view filter, and sort
+order. `src/App.test.jsx` checks that signed-out users are redirected to
+login. CI runs the tests and a production build with lint warnings treated
+as errors.
 
-### `npm run eject`  
-**Note:** this is a one-way operation. Once you `eject`, you can't go back!  
+## Bugs fixed in this revision
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time.  
-This will copy all configuration files and transitive dependencies (webpack, Babel, ESLint, etc.) directly into your project.  
+| Symptom | Cause |
+|---|---|
+| Tasks due "today" appeared under yesterday for users west of UTC | `new Date("yyyy-mm-dd")` is parsed as **UTC** midnight; now parsed as local midnight |
+| A monthly task due Jan 31 jumped to **Mar 3** | `setMonth(+1)` overflows; now clamps to the last day of the month |
+| App stuck on "Loading Workspace..." | Firestore listeners had no error callback; permission or index errors were swallowed |
+| Comments never appeared | The `taskId + createdAt` query needs a composite index; it is now in `firestore.indexes.json` |
+| The priority dropdown did nothing, and sort couldn't be changed | Controls were bound to state nothing read, or were missing |
+| Following the README produced an unconfigured app | It listed `VITE_*` variables. CRA reads `REACT_APP_*` |
+| CI builds failed | Unused variables and a hook-dependency lint error |
+| The test suite could not start | CRA's Jest can't resolve React Router v7's `exports`-only package |
 
----
+## Limitations
 
-## 🔧 Environment Setup  
-
-Before running the app, create a `.env` file in the root folder and add your Firebase configuration:  
-
-VITE_FIREBASE_API_KEY=your_api_key
-VITE_FIREBASE_AUTH_DOMAIN=your_auth_domain
-VITE_FIREBASE_PROJECT_ID=your_project_id
-VITE_FIREBASE_STORAGE_BUCKET=your_storage_bucket
-VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-VITE_FIREBASE_APP_ID=your_app_id
-VITE_FIREBASE_MEASUREMENT_ID=your_measurement_id
-
-
-Make sure your `.env` file is **listed in `.gitignore`** to keep your keys private.  
-
----
-
-## ⚙️ Features  
-
-- 🔐 **User Authentication** (Signup, Login, Forgot Password)  
-- 🧭 **Dashboard Layout** with reusable components  
-- ☁️ **Firebase Firestore Database** for task storage  
-- 💅 **Tailwind CSS Styling** for a clean UI  
-- ⚡ **Responsive Design** for mobile and desktop  
-
----
-
-## 📁 Project Structure  
-
-src/
-├── App.jsx
-├── index.js
-├── firebase.js
-├── contexts/
-│ └── AuthContext.js
-├── components/
-│ └── DashboardLayout.jsx
-└── pages/
-├── LoginPage.jsx
-├── SignupPage.jsx
-└── ForgotPasswordPage.jsx
-
-
----
-
-## 🚀 Deployment  
-
-You can deploy your build folder using:  
-- **Vercel**
-- **Netlify**
-- **Firebase Hosting**
-
-Refer to [Deployment Guide](https://facebook.github.io/create-react-app/docs/deployment) for step-by-step instructions.  
-
----
-
-## 📚 Learn More  
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).  
-To learn React, check out the [React documentation](https://reactjs.org/).  
-
----
-
-### Author  
-👤 **Sashi Vardhan Pragada**  
-🔗 [GitHub Profile](https://github.com/SASHI117)
-
----
-
+- Subtasks are displayed and cascade-deleted, but the UI has no control to create one yet.
+- Built on Create React App, which is in maintenance mode. Migrating to Vite would be the next infrastructure step.

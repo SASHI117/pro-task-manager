@@ -73,20 +73,21 @@ order. `src/App.test.jsx` checks that signed-out users are redirected to
 login. CI runs the tests and a production build with lint warnings treated
 as errors.
 
-## Bugs fixed in this revision
+## Engineering highlights
 
-| Symptom | Cause |
-|---|---|
-| Tasks due "today" appeared under yesterday for users west of UTC | `new Date("yyyy-mm-dd")` is parsed as **UTC** midnight; now parsed as local midnight |
-| A monthly task due Jan 31 jumped to **Mar 3** | `setMonth(+1)` overflows; now clamps to the last day of the month |
-| App stuck on "Loading Workspace..." | Firestore listeners had no error callback; permission or index errors were swallowed |
-| Comments never appeared | The `taskId + createdAt` query needs a composite index; it is now in `firestore.indexes.json` |
-| The priority dropdown did nothing, and sort couldn't be changed | Controls were bound to state nothing read, or were missing |
-| Following the README produced an unconfigured app | It listed `VITE_*` variables. CRA reads `REACT_APP_*` |
-| CI builds failed | Unused variables and a hook-dependency lint error |
-| The test suite could not start | CRA's Jest can't resolve React Router v7's `exports`-only package |
+- **Timezone-correct dates.** Due dates from `<input type="date">` are parsed as local midnight,
+  so Today and Upcoming are right in every timezone.
+- **Month-end-safe recurrence.** Monthly tasks clamp to the last day of the next month
+  (Jan 31 → Feb 28/29), and the rule is covered by tests.
+- **Resilient real-time sync.** Every Firestore listener has an error handler that surfaces
+  permission and index problems in the UI.
+- **Deployable config in the repo.** Security rules, the composite index for comments, and SPA
+  hosting are all in `firebase.json` and deploy with one command.
+- **CI-grade build.** Tests and a production build run on every push, with lint warnings treated
+  as errors.
 
-## Limitations
+## Roadmap
 
-- Subtasks are displayed and cascade-deleted, but the UI has no control to create one yet.
-- Built on Create React App, which is in maintenance mode. Migrating to Vite would be the next infrastructure step.
+- UI for creating subtasks (the data model and cascade delete already support them).
+- Migration from Create React App to Vite.
+- Shared projects between users.
